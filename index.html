@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resumen Diario — Almuerzos</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── URL del CSV de Google Sheets (actualizar si cambia) ── */
+
+:root {
+  --bg:       #F7F5F0;
+  --surface:  #FFFFFF;
+  --ink:      #18160F;
+  --ink2:     #5A5548;
+  --ink3:     #A09890;
+  --line:     #E5E1D8;
+  --accent:   #C84B2F;
+  --accent-bg:#FDF1EE;
+  --teal:     #1A7A5E;
+  --teal-bg:  #EAF5F1;
+  --blue:     #1E4FA3;
+  --blue-bg:  #EEF3FC;
+  --amber:    #A06010;
+  --amber-bg: #FBF4E8;
+  --r:        10px;
+  --r-sm:     6px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--ink); min-height: 100vh; font-size: 13px; }
+
+/* ── LOADING / ERROR ── */
+#loadingScreen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px; z-index: 999;
+}
+.spinner {
+  width: 36px; height: 36px;
+  border: 3px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 13px; color: var(--ink3); font-family: 'IBM Plex Mono', monospace; }
+#errorScreen {
+  display: none; position: fixed; inset: 0;
+  background: var(--bg);
+  align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; z-index: 999;
+}
+.error-box {
+  background: var(--surface); border: 1px solid #F5C4B8;
+  border-radius: var(--r); padding: 24px 32px;
+  max-width: 480px; text-align: center;
+}
+.error-title { font-size: 15px; font-weight: 600; color: var(--accent); margin-bottom: 8px; }
+.error-desc  { font-size: 13px; color: var(--ink2); line-height: 1.6; }
+.retry-btn {
+  margin-top: 14px; padding: 8px 20px;
+  background: var(--accent); color: white;
+  border: none; border-radius: var(--r-sm);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+}
+.retry-btn:hover { opacity: 0.9; }
+
+/* ── TOP BAR ── */
+.topbar {
+  background: var(--ink); color: #fff;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px; height: 52px;
+}
+.topbar-brand { display: flex; align-items: center; gap: 10px; }
+.topbar-logo {
+  width: 28px; height: 28px; background: var(--accent);
+  border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 15px;
+}
+.topbar-title { font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+.topbar-meta  { font-size: 11px; opacity: .4; font-family: 'IBM Plex Mono', monospace; }
+.topbar-right { display: flex; align-items: center; gap: 12px; }
+.live-badge {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; font-family: 'IBM Plex Mono', monospace;
+  color: rgba(255,255,255,0.5);
+}
+.live-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #3AB87C;
+  box-shadow: 0 0 0 0 rgba(58,184,124,0.4);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(58,184,124,0.4); }
+  70%  { box-shadow: 0 0 0 6px rgba(58,184,124,0); }
+  100% { box-shadow: 0 0 0 0 rgba(58,184,124,0); }
+}
+
+/* Selector de día */
+.day-tabs { display: flex; gap: 2px; background: rgba(255,255,255,.1); padding: 3px; border-radius: 8px; }
+.day-tab {
+  border: none; background: transparent;
+  color: rgba(255,255,255,.6);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 12px; font-weight: 500;
+  padding: 5px 14px; border-radius: 6px;
+  cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.day-tab:hover  { background: rgba(255,255,255,.15); color: #fff; }
+.day-tab.active { background: var(--accent); color: #fff; }
+
+/* ── LAYOUT ── */
+.page { max-width: 1300px; margin: 0 auto; padding: 20px 24px 40px; }
+
+/* ── KPI STRIP ── */
+.kpi-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 18px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; }
+.kpi-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink3); margin-bottom: 6px; }
+.kpi-val   { font-size: 26px; font-weight: 600; letter-spacing: -.03em; color: var(--ink); line-height: 1; }
+.kpi-sub   { font-size: 10px; color: var(--ink3); margin-top: 3px; font-family: 'IBM Plex Mono', monospace; }
+.kpi.accent { border-top: 2px solid var(--accent); }
+.kpi.teal   { border-top: 2px solid var(--teal); }
+.kpi.blue   { border-top: 2px solid var(--blue); }
+.kpi.amber  { border-top: 2px solid var(--amber); }
+
+/* ── COLUMNAS ── */
+.main-cols { display: grid; grid-template-columns: 1fr 340px; gap: 14px; margin-bottom: 14px; }
+.left-col  { display: flex; flex-direction: column; gap: 14px; }
+.right-col { display: flex; flex-direction: column; gap: 14px; }
+
+/* ── CARD ── */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.card-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 16px 12px; border-bottom: 1px solid var(--line); }
+.card-head-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--ink2); }
+.card-head-badge { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--ink3); background: var(--bg); padding: 2px 8px; border-radius: 999px; }
+
+/* ── TABLA OPERACIONAL ── */
+.op-table { width: 100%; border-collapse: collapse; }
+.op-table th { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--ink3); padding: 9px 14px; background: var(--bg); text-align: right; border-bottom: 1px solid var(--line); }
+.op-table th:first-child { text-align: left; }
+.op-table td { padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12.5px; text-align: right; color: var(--ink2); font-family: 'IBM Plex Mono', monospace; }
+.op-table td:first-child { text-align: left; font-family: 'IBM Plex Sans', sans-serif; color: var(--ink); font-size: 12.5px; max-width: 220px; }
+.op-table tr:last-child td { border-bottom: none; }
+.op-table tr:hover td { background: var(--bg); }
+.op-table .total-row td { font-weight: 600; color: var(--ink); background: var(--bg); border-top: 1px solid var(--line); border-bottom: none; }
+.op-table .total-row td:first-child { font-family: 'IBM Plex Sans', sans-serif; }
+.op-table .highlight-row td { color: var(--teal); font-weight: 600; background: var(--teal-bg); border-bottom: none; }
+.op-table .highlight-row td:first-child { font-family: 'IBM Plex Sans', sans-serif; }
+.sede-col { color: var(--ink3); font-family: 'IBM Plex Sans', sans-serif; font-weight: 500; }
+.num-total { color: var(--ink) !important; font-weight: 600 !important; }
+
+/* ── BARRAS HORIZONTALES ── */
+.bar-section { padding: 14px 16px; display: flex; flex-direction: column; gap: 9px; }
+.bar-row { display: flex; align-items: center; gap: 10px; }
+.bar-label { font-size: 12px; color: var(--ink2); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar-track { width: 120px; height: 6px; background: var(--line); border-radius: 999px; flex-shrink: 0; overflow: hidden; }
+.bar-fill  { height: 100%; border-radius: 999px; }
+.bar-num   { font-size: 12px; font-family: 'IBM Plex Mono', monospace; font-weight: 500; color: var(--ink); min-width: 22px; text-align: right; }
+
+/* ── SEDES PILLS ── */
+.sedes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px 16px; }
+.sede-pill { padding: 10px 12px; border-radius: var(--r-sm); background: var(--bg); display: flex; flex-direction: column; gap: 4px; }
+.sede-name  { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.sede-count { font-size: 22px; font-weight: 600; letter-spacing: -.03em; line-height: 1; }
+.sede-sub   { font-size: 10px; color: var(--ink3); font-family: 'IBM Plex Mono', monospace; }
+.sede-bar   { height: 3px; border-radius: 999px; margin-top: 4px; }
+
+/* ── ALERTAS ── */
+.alerts-list { padding: 10px 14px; display: flex; flex-direction: column; gap: 7px; }
+.alert-item { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border-radius: var(--r-sm); border: 1px solid; }
+.alert-item.warn { background: var(--accent-bg); border-color: #F5C4B8; }
+.alert-item.info { background: var(--amber-bg); border-color: #E8CCB0; }
+.alert-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
+.alert-item.warn .alert-dot { background: var(--accent); }
+.alert-item.info .alert-dot { background: var(--amber); }
+.alert-nombre { font-size: 12px; font-weight: 600; color: var(--ink); margin-bottom: 1px; }
+.alert-desc   { font-size: 11px; color: var(--ink2); line-height: 1.4; }
+
+/* ── TABLA MODIFICACIONES ── */
+.mod-table { width: 100%; border-collapse: collapse; }
+.mod-table td { padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 12px; vertical-align: top; }
+.mod-table tr:last-child td { border-bottom: none; }
+.mod-table td:first-child { font-weight: 500; color: var(--ink); width: 36%; }
+.mod-table td:nth-child(2){ color: var(--ink3); font-size: 11px; width: 15%; }
+.mod-table td:nth-child(3){ color: var(--ink3); font-size: 11px; width: 16%; }
+.mod-table td:last-child  { color: var(--ink2); font-style: italic; }
+.mod-table tr:hover td { background: var(--bg); }
+.tag-mod  { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--amber-bg); color: var(--amber); border: 1px solid #E8CCB0; }
+.tag-rest { display: inline-block; font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); border: 1px solid #F5C4B8; }
+
+/* ── TOTALES ── */
+.totals-block { padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.total-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-radius: var(--r-sm); }
+.total-line.primary   { background: var(--ink); color: #fff; }
+.total-line.secondary { background: var(--bg); }
+.total-line-label { font-size: 12px; font-weight: 500; }
+.total-line.primary .total-line-label { color: rgba(255,255,255,.8); }
+.total-line-val { font-size: 20px; font-weight: 600; font-family: 'IBM Plex Mono', monospace; }
+.total-line.secondary .total-line-val { color: var(--ink); }
+
+/* ── BOTTOM ── */
+.bottom-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+
+/* ── EMPTY STATE ── */
+.empty { padding: 20px; text-align: center; color: var(--ink3); font-size: 12px; }
+
+/* ── FOOTER ── */
+footer { text-align: center; padding: 20px; font-size: 11px; color: var(--ink3); font-family: 'IBM Plex Mono', monospace; border-top: 1px solid var(--line); margin-top: 8px; }
+
+@media (max-width: 900px) {
+  .kpi-row { grid-template-columns: repeat(3, 1fr); }
+  .main-cols { grid-template-columns: 1fr; }
+  .bottom-cols { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── LOADING ── -->
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div class="loading-text">Cargando datos desde Google Sheets...</div>
+</div>
+
+<!-- ── ERROR ── -->
+<div id="errorScreen">
+  <div class="error-box">
+    <div class="error-title">No se pudo cargar la información</div>
+    <div class="error-desc" id="errorMsg">Verifica que el Google Sheet esté publicado correctamente y que tengas conexión a internet.</div>
+    <button class="retry-btn" onclick="loadData()">Reintentar</button>
+  </div>
+</div>
+
+<!-- ── TOP BAR ── -->
+<div class="topbar">
+  <div class="topbar-brand">
+    <div class="topbar-logo">🍽</div>
+    <div>
+      <div class="topbar-title">Resumen Diario de Almuerzos</div>
+      <div class="topbar-meta" id="topMeta">—</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="live-badge">
+      <div class="live-dot"></div>
+      <span>En vivo</span>
+    </div>
+    <div class="day-tabs" id="dayTabs">
+      <button class="day-tab active" data-d="0">Lunes</button>
+      <button class="day-tab" data-d="1">Martes</button>
+      <button class="day-tab" data-d="2">Miércoles</button>
+      <button class="day-tab" data-d="3">Jueves</button>
+      <button class="day-tab" data-d="4">Viernes</button>
+    </div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- KPI STRIP -->
+  <div class="kpi-row">
+    <div class="kpi accent">
+      <div class="kpi-label">Total almuerzos</div>
+      <div class="kpi-val" id="kpiTotal">—</div>
+      <div class="kpi-sub" id="kpiTotalSub">—</div>
+    </div>
+    <div class="kpi teal">
+      <div class="kpi-label">Tasa de respuesta</div>
+      <div class="kpi-val" id="kpiTasa">—</div>
+      <div class="kpi-sub" id="kpiTasaSub">—</div>
+    </div>
+    <div class="kpi blue">
+      <div class="kpi-label">Sin almuerzo</div>
+      <div class="kpi-val" id="kpiSin">—</div>
+      <div class="kpi-sub">trabajadores ausentes</div>
+    </div>
+    <div class="kpi amber">
+      <div class="kpi-label">Modificaciones</div>
+      <div class="kpi-val" id="kpiMods">—</div>
+      <div class="kpi-sub" id="kpiModsSub">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Restricciones activas</div>
+      <div class="kpi-val" id="kpiRest">—</div>
+      <div class="kpi-sub">alergias y dietas especiales</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Platos distintos</div>
+      <div class="kpi-val" id="kpiPlatosN">—</div>
+      <div class="kpi-sub">en el menú del día</div>
+    </div>
+  </div>
+
+  <!-- COLUMNAS PRINCIPALES -->
+  <div class="main-cols">
+    <div class="left-col">
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-title">Almuerzos por plato y sede</div>
+          <div class="card-head-badge" id="badgePlatos">—</div>
+        </div>
+        <table class="op-table">
+          <thead>
+            <tr>
+              <th>Plato</th>
+              <th class="sede-col">Delpro</th>
+              <th class="sede-col">Amazing</th>
+              <th class="sede-col">Clínica</th>
+              <th class="sede-col">Ditravel</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="bodyPlatos"></tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-title">Bebidas</div>
+          <div class="card-head-badge" id="badgeBebidas">—</div>
+        </div>
+        <table class="op-table">
+          <thead>
+            <tr>
+              <th>Bebida</th>
+              <th class="sede-col">Delpro</th>
+              <th class="sede-col">Amazing</th>
+              <th class="sede-col">Clínica</th>
+              <th class="sede-col">Ditravel</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="bodyBebidas"></tbody>
+        </table>
+      </div>
+
+    </div>
+    <div class="right-col">
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-title">Por sede</div>
+          <div class="card-head-badge" id="badgeSedes">—</div>
+        </div>
+        <div class="sedes-grid" id="sedesGrid"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-head-title">⚠ Alertas del día</div>
+          <div class="card-head-badge" id="badgeAlertas">—</div>
+        </div>
+        <div class="alerts-list" id="alertasList"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- FILA INFERIOR -->
+  <div class="bottom-cols">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title">Proteínas para ensaladas</div>
+        <div class="card-head-badge" id="badgeProt">—</div>
+      </div>
+      <div class="bar-section" id="barProt"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title">Postres</div>
+        <div class="card-head-badge" id="badgePost">—</div>
+      </div>
+      <div class="bar-section" id="barPost"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title">Totales a preparar</div>
+      </div>
+      <div class="totals-block" id="totalesBlock"></div>
+    </div>
+  </div>
+
+  <!-- MODIFICACIONES -->
+  <div style="margin-top:14px">
+    <div class="card">
+      <div class="card-head">
+        <div class="card-head-title">Modificaciones y requerimientos especiales del día</div>
+        <div class="card-head-badge" id="badgeMods2">—</div>
+      </div>
+      <table class="mod-table">
+        <tbody id="bodyMods"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<footer id="footerLabel">Cargando datos...</footer>
+
+<script>
+// ════════════════════════════════════════════════════
+// CONFIGURACIÓN — solo cambia esta URL si la hoja cambia
+// ════════════════════════════════════════════════════
+const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ6l3M60Neg-JS47-T7LNzaV4fVpApcsJLrmL8v3bKUNWQ2jkVnP3WjrtmJW78Uc_Qi_Aa8SrOvvYwx/pub?gid=1292850552&single=true&output=csv";
+
+// Nombres de columna exactos del formulario
+const COLS = {
+  nombre:  "Nombre del trabajador",
+  sede:    "Lugar de trabajo",
+  dieta:   "Indique si tiene alguna dieta especial: alergia, vegetariano, vegano u otro.",
+  dias: [
+    { label: "Lunes",      plato: "Elija su almuerzo (Lunes)",      prot: "Elija la proteína",   bebida: "Selecciona tu bebida",   postre: "Seleccione su postre",   req: "Favor indique si tienes algún requerimiento especial" },
+    { label: "Martes",     plato: "Elija su almuerzo (Martes)",     prot: "Elija la proteína.1", bebida: "Selecciona tu bebida.1", postre: "Seleccione su postre.1", req: "Favor indique si tienes algún requerimiento especial.1" },
+    { label: "Miércoles",  plato: "Elija su almuerzo (Miércoles)",  prot: "Elija la proteína.2", bebida: "Selecciona tu bebida.2", postre: "Seleccione su postre.2", req: "Favor indique si tienes algún requerimiento especial.2" },
+    { label: "Jueves",     plato: "Elija su almuerzo (Jueves)",     prot: "Elija la proteína.3", bebida: "Selecciona tu bebida.3", postre: "Seleccione su postre.3", req: "Favor indique si tienes algún requerimiento especial.3" },
+    { label: "Viernes",    plato: "Elija su almuerzo (Viernes)",    prot: "Elija la proteína.4", bebida: "Selecciona tu bebida.4", postre: "Seleccione su postre.4", req: "Favor indique si tienes algún requerimiento especial.4" },
+  ]
+};
+
+const SEDES       = ["Delpro", "Amazing", "Clínica del Trauma", "Ditravel"];
+const SEDE_LABELS = ["Delpro", "Amazing", "Clínica", "Ditravel"];
+const SEDE_COLOR  = { "Delpro": "#1E4FA3", "Amazing": "#C84B2F", "Clínica del Trauma": "#1A7A5E", "Ditravel": "#A06010" };
+const BAR_COLORS  = ["#1E4FA3","#C84B2F","#1A7A5E","#A06010","#7B3AE8","#E83AA0","#1AA0C8","#A0C81A"];
+
+// ════════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ════════════════════════════════════════════════════
+let DIA   = 0;
+let DATOS = null; // { trabajadores, dias: [{pedidos, sin}] }
+
+// ════════════════════════════════════════════════════
+// PARSEO CSV
+// ════════════════════════════════════════════════════
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  const headers = parseCSVLine(lines[0]);
+  return lines.slice(1)
+    .filter(l => l.trim())
+    .map(l => {
+      const vals = parseCSVLine(l);
+      const obj = {};
+      headers.forEach((h, i) => { obj[h.trim()] = (vals[i] || "").trim(); });
+      return obj;
+    });
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = "", inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"' && !inQ) { inQ = true; }
+    else if (c === '"' && inQ && line[i+1] === '"') { cur += '"'; i++; }
+    else if (c === '"' && inQ) { inQ = false; }
+    else if (c === ',' && !inQ) { result.push(cur); cur = ""; }
+    else { cur += c; }
+  }
+  result.push(cur);
+  return result;
+}
+
+// ════════════════════════════════════════════════════
+// TRANSFORMAR FILAS → ESTRUCTURA POR DÍA
+// ════════════════════════════════════════════════════
+function transformar(rows) {
+  const totalTrab = rows.length;
+
+  const diasData = COLS.dias.map(dc => {
+    const pedidos = [];
+    const sinAlm  = {};
+    SEDES.forEach(s => { sinAlm[s] = 0; });
+
+    rows.forEach(row => {
+      const plato = row[dc.plato] || "";
+      const sede  = row[COLS.sede] || "";
+      const esSin = !plato || plato.toLowerCase().includes("sin almuerzo");
+
+      if (esSin) {
+        if (sinAlm[sede] !== undefined) sinAlm[sede]++;
+      } else {
+        pedidos.push({
+          nombre:  row[COLS.nombre] || "",
+          sede,
+          plato,
+          prot:    row[dc.prot]   || "",
+          bebida:  row[dc.bebida] || "",
+          postre:  row[dc.postre] || "",
+          req:     row[dc.req]    || "",
+          dieta:   row[COLS.dieta] || "",
+        });
+      }
+    });
+
+    return { pedidos, sinAlm };
+  });
+
+  return { totalTrab, diasData };
+}
+
+// ════════════════════════════════════════════════════
+// HELPERS DE AGRUPACIÓN
+// ════════════════════════════════════════════════════
+function agruparPorCampoYSede(pedidos, campo) {
+  const map = {};
+  pedidos.forEach(p => {
+    const val = p[campo];
+    if (!val) return;
+    if (!map[val]) { map[val] = {}; SEDES.forEach(s => { map[val][s] = 0; }); }
+    if (map[val][p.sede] !== undefined) map[val][p.sede]++;
+  });
+  return Object.entries(map)
+    .map(([nombre, conteos]) => ({ nombre, ...conteos, total: SEDES.reduce((a,s) => a+(conteos[s]||0), 0) }))
+    .sort((a, b) => b.total - a.total);
+}
+
+function totalFila(f) { return SEDES.reduce((a, s) => a + (f[s] || 0), 0); }
+
+// ════════════════════════════════════════════════════
+// RENDERIZADO
+// ════════════════════════════════════════════════════
+function renderTablaMatriz(bodyId, badgeId, filas, totalTrab, sinAlm) {
+  const body = document.getElementById(bodyId);
+  const totSede = {};
+  SEDES.forEach(s => { totSede[s] = 0; });
+  let gt = 0;
+
+  const filtradas = filas.filter(f => f.total > 0);
+  body.innerHTML = filtradas.map(f => {
+    gt += f.total;
+    SEDES.forEach(s => { totSede[s] += (f[s] || 0); });
+    return `<tr>
+      <td>${f.nombre}</td>
+      ${SEDES.map(s => `<td>${f[s] || "—"}</td>`).join("")}
+      <td class="num-total">${f.total}</td>
+    </tr>`;
+  }).join("");
+
+  // Fila sin almuerzo
+  const totalSin = SEDES.reduce((a, s) => a + (sinAlm[s] || 0), 0);
+  if (totalSin > 0) {
+    body.innerHTML += `<tr style="opacity:.55">
+      <td style="font-style:italic">Sin almuerzo</td>
+      ${SEDES.map(s => `<td>${sinAlm[s] || "—"}</td>`).join("")}
+      <td>${totalSin}</td>
+    </tr>`;
+  }
+
+  // Total trabajadores
+  body.innerHTML += `<tr class="total-row">
+    <td>Total trabajadores</td>
+    ${SEDES.map(s => `<td>${(totSede[s] || 0) + (sinAlm[s] || 0)}</td>`).join("")}
+    <td>${totalTrab}</td>
+  </tr>`;
+
+  // Total almuerzos a preparar
+  body.innerHTML += `<tr class="highlight-row">
+    <td>Total a preparar</td>
+    ${SEDES.map(s => `<td>${totSede[s] || 0}</td>`).join("")}
+    <td>${gt}</td>
+  </tr>`;
+
+  if (badgeId) document.getElementById(badgeId).textContent = gt + " unidades";
+  return gt;
+}
+
+function renderTablaSimple(bodyId, badgeId, filas) {
+  const body = document.getElementById(bodyId);
+  const filtradas = filas.filter(f => f.total > 0);
+  const totSede = {};
+  SEDES.forEach(s => { totSede[s] = 0; });
+  let gt = 0;
+
+  body.innerHTML = filtradas.map(f => {
+    gt += f.total;
+    SEDES.forEach(s => { totSede[s] += (f[s] || 0); });
+    return `<tr>
+      <td>${f.nombre}</td>
+      ${SEDES.map(s => `<td>${f[s] || "—"}</td>`).join("")}
+      <td class="num-total">${f.total}</td>
+    </tr>`;
+  }).join("");
+
+  body.innerHTML += `<tr class="total-row">
+    <td>Total</td>
+    ${SEDES.map(s => `<td>${totSede[s] || "—"}</td>`).join("")}
+    <td>${gt}</td>
+  </tr>`;
+
+  if (badgeId) document.getElementById(badgeId).textContent = gt + " unidades";
+  return gt;
+}
+
+function renderBarras(containerId, badgeId, filas, label) {
+  const el = document.getElementById(containerId);
+  const filtradas = filas.filter(f => f.total > 0);
+  if (!filtradas.length) { el.innerHTML = '<div class="empty">Sin datos para este día</div>'; return 0; }
+  const max = filtradas[0].total;
+  el.innerHTML = filtradas.map((f, i) => `
+    <div class="bar-row">
+      <div class="bar-label" title="${f.nombre}">${f.nombre}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.round(f.total/max*100)}%;background:${BAR_COLORS[i%BAR_COLORS.length]}"></div></div>
+      <div class="bar-num">${f.total}</div>
+    </div>`).join("");
+  const tot = filtradas.reduce((a, f) => a + f.total, 0);
+  if (badgeId) document.getElementById(badgeId).textContent = tot + (label ? " " + label : " unidades");
+  return tot;
+}
+
+function render() {
+  if (!DATOS) return;
+  const { totalTrab, diasData } = DATOS;
+  const { pedidos, sinAlm } = diasData[DIA];
+  const diaLabel = COLS.dias[DIA].label;
+  const totalSin = SEDES.reduce((a, s) => a + (sinAlm[s] || 0), 0);
+  const totalAlm = pedidos.length;
+
+  // Meta
+  document.getElementById("topMeta").textContent = diaLabel + " · " + totalAlm + " almuerzos";
+  document.getElementById("footerLabel").textContent =
+    "Datos actualizados en tiempo real desde Google Sheets · " + new Date().toLocaleString("es-CL");
+
+  // KPIs
+  document.getElementById("kpiTotal").textContent = totalAlm;
+  document.getElementById("kpiTotalSub").textContent = "de " + totalTrab + " trabajadores";
+  const tasa = Math.round(totalAlm / totalTrab * 100);
+  document.getElementById("kpiTasa").textContent = tasa + "%";
+  document.getElementById("kpiTasaSub").textContent = totalAlm + " respuestas recibidas";
+  document.getElementById("kpiSin").textContent = totalSin;
+  const mods = pedidos.filter(p => p.req).length;
+  document.getElementById("kpiMods").textContent = mods;
+  document.getElementById("kpiModsSub").textContent = Math.round(mods / (totalAlm || 1) * 100) + "% de los pedidos";
+  const rest = pedidos.filter(p => p.dieta).length;
+  document.getElementById("kpiRest").textContent = rest;
+  const platos = agruparPorCampoYSede(pedidos, "plato");
+  document.getElementById("kpiPlatosN").textContent = platos.filter(p => p.total > 0).length;
+
+  // Tabla platos
+  renderTablaMatriz("bodyPlatos", "badgePlatos", platos, totalTrab, sinAlm);
+
+  // Tabla bebidas
+  const bebidas = agruparPorCampoYSede(pedidos, "bebida");
+  renderTablaSimple("bodyBebidas", "badgeBebidas", bebidas);
+
+  // Sedes
+  const sedesGrid = document.getElementById("sedesGrid");
+  const maxSede = Math.max(...SEDES.map(s => pedidos.filter(p => p.sede === s).length));
+  sedesGrid.innerHTML = SEDES.map(s => {
+    const alm = pedidos.filter(p => p.sede === s).length;
+    const sinS = sinAlm[s] || 0;
+    const trabS = alm + sinS;
+    const pct = trabS > 0 ? Math.round(alm / trabS * 100) : 0;
+    const barW = maxSede > 0 ? Math.round(alm / maxSede * 100) : 0;
+    return `<div class="sede-pill">
+      <div class="sede-name" style="color:${SEDE_COLOR[s]}">${s}</div>
+      <div class="sede-count" style="color:${SEDE_COLOR[s]}">${alm}</div>
+      <div class="sede-sub">${pct}% · ${sinS} sin almuerzo</div>
+      <div class="sede-bar" style="width:${barW}%;background:${SEDE_COLOR[s]}"></div>
+    </div>`;
+  }).join("");
+  document.getElementById("badgeSedes").textContent = totalAlm + " total";
+
+  // Alertas
+  const alertas = pedidos.filter(p => p.dieta);
+  document.getElementById("badgeAlertas").textContent = alertas.length + " alertas";
+  const aList = document.getElementById("alertasList");
+  if (!alertas.length) {
+    aList.innerHTML = '<div class="empty">Sin alertas de restricciones para este día</div>';
+  } else {
+    aList.innerHTML = alertas.map(p => `
+      <div class="alert-item warn">
+        <div class="alert-dot"></div>
+        <div>
+          <div class="alert-nombre">${p.nombre} <span style="font-weight:400;color:var(--ink3);font-size:11px">· ${p.sede}</span></div>
+          <div class="alert-desc">${p.dieta}</div>
+        </div>
+      </div>`).join("");
+  }
+
+  // Proteínas
+  const prots = agruparPorCampoYSede(pedidos.filter(p => p.prot), "prot");
+  renderBarras("barProt", "badgeProt", prots, "ensaladas");
+
+  // Postres
+  const postres = agruparPorCampoYSede(pedidos, "postre");
+  renderBarras("barPost", "badgePost", postres, "porciones");
+
+  // Totales
+  const ensaladas = platos.filter(p => p.nombre.startsWith("E1") || p.nombre.startsWith("E2"))
+    .reduce((a, f) => a + f.total, 0);
+  document.getElementById("totalesBlock").innerHTML = `
+    <div class="total-line primary">
+      <div class="total-line-label">Almuerzos totales</div>
+      <div class="total-line-val">${totalAlm}</div>
+    </div>
+    <div class="total-line secondary">
+      <div class="total-line-label">Salsa de acompañamiento</div>
+      <div class="total-line-val">${totalAlm}</div>
+    </div>
+    <div class="total-line secondary">
+      <div class="total-line-label">Ensaladas acompañamiento</div>
+      <div class="total-line-val">${totalAlm - ensaladas}</div>
+    </div>
+    <div class="total-line secondary">
+      <div class="total-line-label">Bebidas</div>
+      <div class="total-line-val">${totalAlm}</div>
+    </div>
+    <div class="total-line secondary">
+      <div class="total-line-label">Postres</div>
+      <div class="total-line-val">${totalAlm}</div>
+    </div>`;
+
+  // Modificaciones
+  const allMods = pedidos.filter(p => p.req || p.dieta);
+  document.getElementById("badgeMods2").textContent = allMods.length + " registros";
+  document.getElementById("bodyMods").innerHTML = allMods.length
+    ? allMods.map(p => {
+        const esRest = !!p.dieta;
+        const tag = esRest
+          ? `<span class="tag-rest">Restricción</span>`
+          : `<span class="tag-mod">Modificación</span>`;
+        const texto = [p.req, p.dieta].filter(Boolean).join(" · ");
+        return `<tr>
+          <td>${p.nombre}</td>
+          <td>${tag}</td>
+          <td style="color:var(--ink3);font-size:11px">${p.sede}</td>
+          <td>${texto}</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="4" class="empty">Sin modificaciones para este día</td></tr>`;
+}
+
+// ════════════════════════════════════════════════════
+// CARGA DE DATOS
+// ════════════════════════════════════════════════════
+async function loadData() {
+  document.getElementById("loadingScreen").style.display = "flex";
+  document.getElementById("errorScreen").style.display   = "none";
+
+  try {
+    // Proxy para evitar bloqueo CORS del navegador
+    const PROXY = "https://corsproxy.io/?url=";
+    const resp = await fetch(PROXY + encodeURIComponent(CSV_URL), { cache: "no-store" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    const text = await resp.text();
+    if (!text || text.length < 100) throw new Error("CSV vacío o inválido");
+
+    const rows = parseCSV(text);
+    if (!rows.length) throw new Error("Sin filas en el CSV");
+
+    DATOS = transformar(rows);
+    document.getElementById("loadingScreen").style.display = "none";
+    render();
+
+  } catch (err) {
+    document.getElementById("loadingScreen").style.display  = "none";
+    document.getElementById("errorScreen").style.display    = "flex";
+    document.getElementById("errorMsg").textContent =
+      "Error al cargar los datos: " + err.message +
+      ". Verifica que el Google Sheet esté publicado como CSV y que tengas conexión a internet.";
+  }
+}
+
+// ════════════════════════════════════════════════════
+// FILTRO DE DÍAS
+// ════════════════════════════════════════════════════
+document.getElementById("dayTabs").addEventListener("click", e => {
+  const btn = e.target.closest(".day-tab");
+  if (!btn) return;
+  document.querySelectorAll(".day-tab").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  DIA = parseInt(btn.dataset.d);
+  render();
+});
+
+// ════════════════════════════════════════════════════
+// INICIO — carga al abrir + recarga automática cada 5 min
+// ════════════════════════════════════════════════════
+loadData();
+setInterval(loadData, 5 * 60 * 1000);
+</script>
+</body>
+</html>
