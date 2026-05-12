@@ -476,7 +476,8 @@ function transformar(rows) {
     SEDES.forEach(s => { sinAlm[s] = 0; });
 
     rows.forEach(row => {
-      const plato = row[dc.plato] || "";
+      // Buscar columna de plato con nombre exacto o aproximado
+    const plato = row[dc.plato] || row[Object.keys(row).find(k => k.includes("almuerzo") && (k.includes(dc.label) || dc.label === "Lunes" && !k.includes(".")))] || "";
       const sede  = row[COLS.sede] || "";
       const esSin = !plato || plato.toLowerCase().includes("sin almuerzo");
 
@@ -737,20 +738,35 @@ function render() {
 // ════════════════════════════════════════════════════
 // CARGA DE DATOS
 // ════════════════════════════════════════════════════
+async function fetchConProxy(url) {
+  const proxies = [
+    u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    u => `https://corsproxy.io/?url=${encodeURIComponent(u)}`,
+    u => `https://thingproxy.freeboard.io/fetch/${u}`,
+    u => u, // intento directo como último recurso
+  ];
+  for (const proxy of proxies) {
+    try {
+      const resp = await fetch(proxy(url), { cache: "no-store" });
+      if (!resp.ok) continue;
+      const text = await resp.text();
+      if (text && text.length > 100 && !text.includes("Host not in allowlist")) return text;
+    } catch(e) { continue; }
+  }
+  throw new Error("No se pudo acceder al CSV con ningún proxy disponible");
+}
+
 async function loadData() {
   document.getElementById("loadingScreen").style.display = "flex";
   document.getElementById("errorScreen").style.display   = "none";
 
   try {
-    // Proxy para evitar bloqueo CORS del navegador
-    const PROXY = "https://corsproxy.io/?url=";
-    const resp = await fetch(PROXY + encodeURIComponent(CSV_URL), { cache: "no-store" });
-    if (!resp.ok) throw new Error("HTTP " + resp.status);
-    const text = await resp.text();
-    if (!text || text.length < 100) throw new Error("CSV vacío o inválido");
-
+    const text = await fetchConProxy(CSV_URL);
     const rows = parseCSV(text);
     if (!rows.length) throw new Error("Sin filas en el CSV");
+
+    // Debug: mostrar columnas detectadas en consola
+    console.log("Columnas CSV:", Object.keys(rows[0]));
 
     DATOS = transformar(rows);
     document.getElementById("loadingScreen").style.display = "none";
